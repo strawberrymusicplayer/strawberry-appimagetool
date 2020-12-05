@@ -1,0 +1,51 @@
+name: C/C++ CI
+on: [push, pull_request]
+
+jobs:
+  build-appimagetool:
+    name: Build appimagetool
+    runs-on: ubuntu-latest
+    container:
+      image: opensuse/tumbleweed
+    steps:
+      - uses: actions/checkout@v1.2.0
+
+      - name: Update packages
+        run: zypper --non-interactive --gpg-auto-import-keys ref
+
+      - name: Install dependencies
+        run: zypper --non-interactive --gpg-auto-import-keys install git go
+
+      - name: Build
+        shell: bash
+        working-directory: appimagetool
+        run: go build -v -trimpath -ldflags="-s -w"
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: release-appimagetool
+          path: appimagetool/appimagetool
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
+    needs:
+      - build-appimagetool
+    steps:
+      - uses: actions/checkout@v1.2.0
+      - uses: actions/download-artifact@v2
+        with:
+          path: release_artifacts
+      - name: Create Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -x
+          version=$(git describe --tags --always)
+          assets=()
+          for asset in $(find release_artifacts -type f); do
+            echo "Adding asset: ${asset}"
+            assets+=("-a" "$asset")
+          done
+          hub release create "${assets[@]}" -m "appimagetool $version" -t "$GITHUB_SHA" "$version"
